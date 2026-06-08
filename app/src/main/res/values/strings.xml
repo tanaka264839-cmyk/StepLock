@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">StepLock</string>
+    <string name="accessibility_service_description">歩数に応じて指定アプリの利用時間を制限します。残り時間が0になったアプリを開こうとすると、ブロック画面を表示します。</string>
 </resources>

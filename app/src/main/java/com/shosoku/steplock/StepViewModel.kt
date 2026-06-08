@@ -40,11 +40,13 @@ class StepViewModel : ViewModel() {
             }
         }
 
-        // 1秒ごとにカウントダウン
+        // 1秒ごとにカウントダウン＆AccessibilityService用に同期
         viewModelScope.launch {
             while (true) {
                 delay(1000L)
                 _remainingSeconds.update { maxOf(0, it - 1) }
+                // AccessibilityServiceが残り時間を参照できるよう同期
+                StepCounterService.updateRemainingSeconds(_remainingSeconds.value)
             }
         }
     }

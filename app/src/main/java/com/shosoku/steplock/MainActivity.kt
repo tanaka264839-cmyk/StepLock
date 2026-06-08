@@ -4,8 +4,10 @@ import android.annotation.SuppressLint
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -81,6 +83,14 @@ class MainActivity : ComponentActivity() {
     private fun startStepService() {
         val intent = Intent(this, StepCounterService::class.java)
         startForegroundService(intent)
+        // オーバーレイ権限がなければ設定画面へ誘導
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            val overlayIntent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            startActivity(overlayIntent)
+        }
     }
 }
 

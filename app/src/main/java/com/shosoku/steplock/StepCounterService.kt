@@ -32,6 +32,14 @@ class StepCounterService : Service(), SensorEventListener {
         private val _stepCount = MutableStateFlow(0)
         val stepCount: StateFlow<Int> = _stepCount.asStateFlow()
 
+        // AccessibilityServiceから参照する残り秒数（ViewModelが更新）
+        private val _remainingSeconds = MutableStateFlow(0)
+        val remainingSeconds: StateFlow<Int> = _remainingSeconds.asStateFlow()
+
+        fun updateRemainingSeconds(seconds: Int) {
+            _remainingSeconds.value = seconds
+        }
+
         // エミュレータテスト用：歩数を直接加算する
         fun addTestSteps(steps: Int) {
             _stepCount.value += steps
