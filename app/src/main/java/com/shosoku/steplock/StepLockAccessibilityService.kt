@@ -35,7 +35,13 @@ class StepLockAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        Log.d("StepLockA11y", "✅ onServiceConnected: サービス起動完了")
+        // SharedPreferences に保存済みがあれば上書きして反映（なければデフォルトの YouTube を維持）
+        val saved = BlockedAppsRepository.getBlockedPackages(this)
+        if (saved.isNotEmpty()) {
+            restrictedPackages.clear()
+            restrictedPackages.addAll(saved)
+        }
+        Log.d("StepLockA11y", "✅ onServiceConnected: サービス起動完了 packages=$restrictedPackages")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {

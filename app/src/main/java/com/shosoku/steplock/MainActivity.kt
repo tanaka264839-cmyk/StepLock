@@ -4,10 +4,8 @@ import android.annotation.SuppressLint
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -46,9 +44,17 @@ class MainActivity : ComponentActivity() {
         requestPermissionsIfNeeded()
         setContent {
             StepLockTheme {
-                // collectAsState() は追加依存なしで使える
                 val uiState by viewModel.uiState.collectAsState()
-                StepLockScreen(uiState = uiState)
+                var showAppSelect by remember { mutableStateOf(false) }
+
+                if (showAppSelect) {
+                    AppSelectScreen(onBack = { showAppSelect = false })
+                } else {
+                    StepLockScreen(
+                        uiState = uiState,
+                        onAppSelectClick = { showAppSelect = true }
+                    )
+                }
             }
         }
     }
@@ -83,19 +89,12 @@ class MainActivity : ComponentActivity() {
     private fun startStepService() {
         val intent = Intent(this, StepCounterService::class.java)
         startForegroundService(intent)
-        // オーバーレイ権限がなければ設定画面へ誘導
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            val overlayIntent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")
-            )
-            startActivity(overlayIntent)
-        }
+        // ※ オーバーレイ権限は初回セットアップ時に手動で付与済みのため自動リダイレクトを廃止
     }
 }
 
 @Composable
-fun StepLockScreen(uiState: StepUiState) {
+fun StepLockScreen(uiState: StepUiState, onAppSelectClick: () -> Unit = {}) {
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
         Column(
             modifier = Modifier
@@ -208,7 +207,17 @@ fun StepLockScreen(uiState: StepUiState) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // ── アプリ選択ボタン ──
+            OutlinedButton(
+                onClick = onAppSelectClick,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("🔧 ブロックするアプリを選ぶ")
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             // ── エミュレータ専用テストボタン ──
             HorizontalDivider()
