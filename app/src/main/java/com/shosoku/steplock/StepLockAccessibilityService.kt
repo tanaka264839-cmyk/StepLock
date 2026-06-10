@@ -20,6 +20,9 @@ class StepLockAccessibilityService : AccessibilityService() {
     // 現在ブロック中のパッケージ名
     private var currentlyBlockedPackage: String? = null
 
+    // 直近でフォアグラウンドにいたパッケージ名（タイムアウト時の再チェック用）
+    private var lastForegroundPackage: String? = null
+
     companion object {
         // 制限対象アプリのパッケージ名セット（MainActivityから設定）
         val restrictedPackages = mutableSetOf<String>(
@@ -56,6 +59,9 @@ class StepLockAccessibilityService : AccessibilityService() {
         // ブロック画面表示中は com.shosoku.steplock のイベントを無視（オーバーレイの誤検知対策）
         if (packageName == "com.shosoku.steplock" && blockingView != null) return
 
+        // フォアグラウンドパッケージを更新（タイムアウト時の再チェック用）
+        lastForegroundPackage = packageName
+
         val isRestricted = restrictedPackages.contains(packageName)
         val isUnlocked = StepCounterService.remainingSeconds.value > 0
 
@@ -88,6 +94,23 @@ class StepLockAccessibilityService : AccessibilityService() {
         super.onDestroy()
         instance = null
         dismissBlockScreen()
+    }
+
+    /**
+     * タイマーが0になった瞬間にViewModelから呼ばれる。
+     * 現在フォアグラウンドのアプリが制限対象なら即ブロック画面を表示する。
+     */
+    fun recheckForeground() {
+        val pkg = lastForegroundPackage
+        val seconds = StepCounterService.remainingSeconds.value
+        Log.d("StepLockA11y", "🔔 recheckForeground: pkg=$pkg seconds=$seconds restricted=${restrictedPackages}")
+        if (pkg == null) return
+        if (restrictedPackages.contains(pkg) && seconds == 0) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                Log.d("StepLockA11y", "🔒 showBlockScreen from recheckForeground: pkg=$pkg")
+                if (blockingView == null) showBlockScreen(pkg)
+            }
+        }
     }
 
     // ブロック画面を表示

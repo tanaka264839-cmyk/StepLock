@@ -11,10 +11,17 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 class StepCounterService : Service(), SensorEventListener {
 
@@ -24,6 +31,9 @@ class StepCounterService : Service(), SensorEventListener {
     // デバイス起動からの累計歩数の初期値（アプリ起動時に記録）
     private var initialSteps = -1
 
+    // サービスのコルーチンスコープ（サービスが生きている間ずっと動く）
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
     companion object {
         private const val CHANNEL_ID = "step_counter_channel"
         private const val NOTIFICATION_ID = 1
@@ -32,17 +42,22 @@ class StepCounterService : Service(), SensorEventListener {
         private val _stepCount = MutableStateFlow(0)
         val stepCount: StateFlow<Int> = _stepCount.asStateFlow()
 
-        // AccessibilityServiceから参照する残り秒数（ViewModelが更新）
+        // 残り秒数（Serviceが管理・ViewModelは表示のみ）
         private val _remainingSeconds = MutableStateFlow(0)
         val remainingSeconds: StateFlow<Int> = _remainingSeconds.asStateFlow()
 
-        fun updateRemainingSeconds(seconds: Int) {
-            _remainingSeconds.value = seconds
-        }
-
         // エミュレータテスト用：歩数を直接加算する
         fun addTestSteps(steps: Int) {
-            _stepCount.value += steps
+            val oldCount = _stepCount.value
+            val newCount = oldCount + steps
+            _stepCount.value = newCount
+            // 100歩ごとに60秒追加
+            val oldMinutes = oldCount / 100
+            val newMinutes = newCount / 100
+            if (newMinutes > oldMinutes) {
+                _remainingSeconds.value += (newMinutes - oldMinutes) * 60
+                Log.d("StepLockService", "🦶 +${steps}歩 → +${(newMinutes - oldMinutes) * 60}秒 (残り${_remainingSeconds.value}秒)")
+            }
         }
     }
 
@@ -51,15 +66,35 @@ class StepCounterService : Service(), SensorEventListener {
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
         createNotificationChannel()
-        // ForegroundServiceとして通知を出す（Android 8以上で必須）
         startForeground(NOTIFICATION_ID, buildNotification(0))
+
+        // カウントダウンをServiceで管理（ViewModelではなくServiceで動かすことで
+        // アプリがバックグラウンドになっても正確に動き続ける）
+        startCountdown()
+    }
+
+    private fun startCountdown() {
+        serviceScope.launch {
+            while (true) {
+                delay(1000L)
+                val before = _remainingSeconds.value
+                if (before > 0) {
+                    val after = before - 1
+                    _remainingSeconds.value = after
+                    Log.d("StepLockService", "⏱ countdown: ${after}秒")
+                    if (after == 0) {
+                        Log.d("StepLockService", "⏰ タイマー0到達 → recheckForeground呼び出し")
+                        StepLockAccessibilityService.instance?.recheckForeground()
+                    }
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         stepSensor?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
-        // STARTがkillされてもOSが再起動してくれる
         return START_STICKY
     }
 
@@ -67,25 +102,32 @@ class StepCounterService : Service(), SensorEventListener {
         event ?: return
         val totalSteps = event.values[0].toInt()
 
-        // 初回イベントでアプリ起動時点の累計歩数を記録
         if (initialSteps == -1) {
             initialSteps = totalSteps
         }
 
-        // 「今日」ではなく「このアプリを使い始めてからの歩数」をMVPとして計測
-        val steps = totalSteps - initialSteps
-        _stepCount.value = steps
-        updateNotification(steps)
+        val oldCount = _stepCount.value
+        val newCount = totalSteps - initialSteps
+        _stepCount.value = newCount
+
+        // 100歩ごとに60秒追加（実機用）
+        val oldMinutes = oldCount / 100
+        val newMinutes = newCount / 100
+        if (newMinutes > oldMinutes) {
+            _remainingSeconds.value += (newMinutes - oldMinutes) * 60
+            Log.d("StepLockService", "🦶 実機: +${(newMinutes - oldMinutes) * 60}秒 (残り${_remainingSeconds.value}秒)")
+        }
+
+        updateNotification(newCount)
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        // 今回は使わない
-    }
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         super.onDestroy()
+        serviceScope.cancel()
         sensorManager.unregisterListener(this)
     }
 
@@ -104,7 +146,7 @@ class StepCounterService : Service(), SensorEventListener {
             .setContentText("歩数：${steps}歩 ／ あと${remaining}歩で1分 ／ 獲得：${minutes}分")
             .setSmallIcon(android.R.drawable.ic_menu_directions)
             .setContentIntent(pendingIntent)
-            .setOngoing(true)  // スワイプで消せない
+            .setOngoing(true)
             .build()
     }
 
@@ -117,7 +159,7 @@ class StepCounterService : Service(), SensorEventListener {
         val channel = NotificationChannel(
             CHANNEL_ID,
             "StepLock 歩数計測",
-            NotificationManager.IMPORTANCE_LOW  // LOW = サウンドなし・常駐向け
+            NotificationManager.IMPORTANCE_LOW
         ).apply {
             description = "StepLockがバックグラウンドで歩数を計測しています"
         }
