@@ -77,7 +77,6 @@ class StepLockAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        Log.d("StepLockA11y", "📡 event: type=${event.eventType} pkg=${event.packageName}")
 
         // TYPE_WINDOWS_CHANGED はここでは何もしない。
         // ホームキー / タスク切替は onKeyEvent() が先行検知して解除する。
@@ -86,7 +85,6 @@ class StepLockAccessibilityService : AccessibilityService() {
 
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val packageName = event.packageName?.toString() ?: return
-        Log.d("StepLockA11y", "🔍 window changed: $packageName")
 
         // システムUIは無視
         if (packageName == "com.android.systemui") return
@@ -105,17 +103,13 @@ class StepLockAccessibilityService : AccessibilityService() {
                 // 制限対象 かつ 残り時間0 → ブロック
                 // バックグラウンドアプリから発火したイベントで誤表示しないよう、
                 // ウィンドウリストで「実際にフォアグラウンドにいるか」を確認してから表示する。
-                // API34以上: win.packageName を直接使う（win.root?.packageName は不安定）
-                // API33以下: win.root?.packageName を使い、失敗時はブロックする（保守的）
+                // AccessibilityWindowInfo に packageName プロパティは存在しないため、
+                // root ノード経由で取得する。root が null または例外時は保守的にブロック（true）。
                 if (blockingView == null) {
                     val isActuallyForeground = windows?.any { win ->
                         win.type == AccessibilityWindowInfo.TYPE_APPLICATION &&
                         win.isActive &&
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                            win.packageName?.toString() == packageName
-                        } else {
-                            try { win.root?.packageName?.toString() == packageName } catch (_: Exception) { true }
-                        }
+                        try { win.root?.packageName?.toString() == packageName } catch (_: Exception) { true }
                     } ?: true  // windowsがnull = 取得失敗 → 保守的にブロックする
                     if (isActuallyForeground) showBlockScreen(packageName)
                 }
@@ -168,20 +162,18 @@ class StepLockAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * タイマーが0になった瞬間にViewModelから呼ばれる。
+     * タイマーが0になった瞬間にStepCounterServiceから呼ばれる。
      * 現在フォアグラウンドのアプリが制限対象なら即ブロック画面を表示する。
-     * API34以上: windowsリストから実際のフォアグラウンドを取得（lastForegroundPackageより正確）
-     * API33以下: lastForegroundPackageにフォールバック
+     * windowsリストからアクティブなアプリウィンドウを取得し root ノード経由でパッケージ名を確認する。
+     * 取得失敗時は lastForegroundPackage にフォールバック。
      */
     fun recheckForeground() {
         val seconds = StepCounterService.remainingSeconds.value
-        val pkg = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            windows?.firstOrNull {
-                it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive
-            }?.packageName?.toString() ?: lastForegroundPackage
-        } else {
-            lastForegroundPackage
-        }
+        val pkg = windows?.firstOrNull {
+            it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive
+        }?.let { win ->
+            try { win.root?.packageName?.toString() } catch (_: Exception) { null }
+        } ?: lastForegroundPackage
         Log.d("StepLockA11y", "🔔 recheckForeground: pkg=$pkg seconds=$seconds restricted=${restrictedPackages}")
         if (pkg == null) return
         if (restrictedPackages.contains(pkg) && seconds == 0) {

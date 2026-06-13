@@ -13,7 +13,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -217,34 +216,6 @@ fun StepLockScreen(uiState: StepUiState, onAppSelectClick: () -> Unit = {}) {
                 Text("🔧 ブロックするアプリを選ぶ")
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // ── エミュレータ専用テストボタン ──
-            HorizontalDivider()
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = "テスト用（エミュレータのみ）",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = { StepCounterService.addTestSteps(10) },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("＋10歩")
-                }
-                Button(
-                    onClick = { StepCounterService.addTestSteps(100) },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("＋100歩")
-                }
-            }
         }
     }
 }
