@@ -15,6 +15,7 @@ import android.widget.Button
 import android.widget.TextView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -29,6 +30,12 @@ class StepLockAccessibilityService : AccessibilityService() {
 
     // 直近でフォアグラウンドにいたパッケージ名（タイムアウト時の再チェック用）
     private var lastForegroundPackage: String? = null
+
+    // ブロック画面の歩数テキスト（リアルタイム更新用）
+    private var stepsNeededTextView: TextView? = null
+
+    // ブロック画面表示中の歩数監視Job
+    private var blockScreenJob: Job? = null
 
     // remainingSeconds監視用スコープ
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -212,6 +219,14 @@ class StepLockAccessibilityService : AccessibilityService() {
 
         try {
             windowManager?.addView(view, params)
+            // 歩数のリアルタイム監視を開始（ブロック画面が表示されている間だけ動く）
+            blockScreenJob = serviceScope.launch {
+                StepCounterService.stepCount.collect { steps ->
+                    val stepsInBatch = steps % 100
+                    val stepsNeeded = if (stepsInBatch == 0) 100 else 100 - stepsInBatch
+                    stepsNeededTextView?.text = "あと $stepsNeeded 歩 歩くと 1分 使えます"
+                }
+            }
         } catch (e: Exception) {
             blockingView = null
         }
@@ -219,6 +234,11 @@ class StepLockAccessibilityService : AccessibilityService() {
 
     // ブロック画面を閉じる
     fun dismissBlockScreen() {
+        // 歩数監視を停止
+        blockScreenJob?.cancel()
+        blockScreenJob = null
+        stepsNeededTextView = null
+
         blockingView?.let {
             try {
                 windowManager?.removeView(it)
@@ -257,14 +277,18 @@ class StepLockAccessibilityService : AccessibilityService() {
             setPadding(0, 24, 0, 8)
         }
 
+        // 現在の歩数から初期表示値を計算（coroutineが動き出す前の一瞬を埋める）
+        val initStepsInBatch = StepCounterService.stepCount.value % 100
+        val initStepsNeeded = if (initStepsInBatch == 0) 100 else 100 - initStepsInBatch
         val subText = TextView(context).apply {
-            val neededSteps = 100  // 1分 = 100歩
-            text = "あと $neededSteps 歩 歩くと 1分 使えます"
+            text = "あと $initStepsNeeded 歩 歩くと 1分 使えます"
             textSize = 16f
             setTextColor(android.graphics.Color.LTGRAY)
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, 40)
         }
+        // Coroutineからテキストを更新するための参照を保存
+        stepsNeededTextView = subText
 
         val homeButton = Button(context).apply {
             text = "ホームに戻る"
