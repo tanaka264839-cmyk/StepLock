@@ -101,30 +101,37 @@ class StepLockAccessibilityService : AccessibilityService() {
         when {
             isRestricted && !isUnlocked -> {
                 // 制限対象 かつ 残り時間0 → ブロック
+                StepCounterService.setRestrictedAppActive(false)  // Bug2：タイマー消費停止
                 // バックグラウンドアプリから発火したイベントで誤表示しないよう、
                 // ウィンドウリストで「実際にフォアグラウンドにいるか」を確認してから表示する。
-                // AccessibilityWindowInfo に packageName プロパティは存在しないため、
-                // root ノード経由で取得する。root が null または例外時は保守的にブロック（true）。
                 if (blockingView == null) {
-                    val isActuallyForeground = windows?.any { win ->
-                        win.type == AccessibilityWindowInfo.TYPE_APPLICATION &&
-                        win.isActive &&
-                        try { win.root?.packageName?.toString() == packageName } catch (_: Exception) { true }
-                    } ?: true  // windowsがnull = 取得失敗 → 保守的にブロックする
+                    // Bug1：API 28未満ではwin.rootがnullになりやすいためwindowsチェックをスキップ
+                    val isActuallyForeground = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        windows?.any { win ->
+                            win.type == AccessibilityWindowInfo.TYPE_APPLICATION &&
+                            win.isActive &&
+                            try { win.root?.packageName?.toString() == packageName } catch (_: Exception) { true }
+                        } ?: true  // windowsがnull = 取得失敗 → 保守的にブロックする
+                    } else {
+                        true  // Android 8以下：イベントを信頼してブロック
+                    }
                     if (isActuallyForeground) showBlockScreen(packageName)
                 }
             }
             isRestricted && isUnlocked -> {
-                // 制限対象だが時間あり → ブロック解除
+                // 制限対象だが時間あり → ブロック解除（タイマー消費開始）
+                StepCounterService.setRestrictedAppActive(true)  // Bug2：タイマー消費開始
                 dismissBlockScreen()
             }
             packageName == "com.android.launcher3" ||
             packageName == "com.google.android.apps.nexuslauncher" -> {
                 // ホームに戻った → ブロック解除
+                StepCounterService.setRestrictedAppActive(false)  // Bug2：タイマー消費停止
                 dismissBlockScreen()
             }
             !isRestricted && blockingView != null -> {
                 // 制限対象でない別アプリが前面 → ブロック解除
+                StepCounterService.setRestrictedAppActive(false)  // Bug2：タイマー消費停止
                 dismissBlockScreen()
             }
         }

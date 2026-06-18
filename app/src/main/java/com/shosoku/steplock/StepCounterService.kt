@@ -38,6 +38,13 @@ class StepCounterService : Service(), SensorEventListener {
         private const val CHANNEL_ID = "step_counter_channel"
         private const val NOTIFICATION_ID = 1
 
+        // SharedPreferences キー（Bug3：サービス再起動時のデータ復元用）
+        private const val PREFS_NAME = "StepLockPrefs"
+        private const val KEY_INITIAL_STEPS = "initial_steps"
+        private const val KEY_STEP_COUNT = "step_count"
+        private const val KEY_REMAINING_SECONDS = "remaining_seconds"
+        private const val KEY_LAST_RESET_DATE = "last_reset_date"
+
         // ServiceとViewModelが共有するStateFlow
         private val _stepCount = MutableStateFlow(0)
         val stepCount: StateFlow<Int> = _stepCount.asStateFlow()
@@ -45,6 +52,14 @@ class StepCounterService : Service(), SensorEventListener {
         // 残り秒数（Serviceが管理・ViewModelは表示のみ）
         private val _remainingSeconds = MutableStateFlow(0)
         val remainingSeconds: StateFlow<Int> = _remainingSeconds.asStateFlow()
+
+        // Bug2：制限アプリ使用中フラグ（タイマー消費をコントロール）
+        private val _isRestrictedAppActive = MutableStateFlow(false)
+        val isRestrictedAppActive: StateFlow<Boolean> = _isRestrictedAppActive.asStateFlow()
+
+        fun setRestrictedAppActive(active: Boolean) {
+            _isRestrictedAppActive.value = active
+        }
 
         // エミュレータテスト用：歩数を直接加算する
         fun addTestSteps(steps: Int) {
@@ -63,6 +78,31 @@ class StepCounterService : Service(), SensorEventListener {
 
     override fun onCreate() {
         super.onCreate()
+
+        // Bug3：SharedPreferencesからデータを復元（または日付変わりでリセット）
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        val savedDate = prefs.getString(KEY_LAST_RESET_DATE, "")
+
+        if (savedDate != today) {
+            // 日付が変わった → 全リセット
+            prefs.edit()
+                .putString(KEY_LAST_RESET_DATE, today)
+                .putInt(KEY_INITIAL_STEPS, -1)
+                .putInt(KEY_STEP_COUNT, 0)
+                .putInt(KEY_REMAINING_SECONDS, 0)
+                .apply()
+            initialSteps = -1
+            _stepCount.value = 0
+            _remainingSeconds.value = 0
+        } else {
+            // 同日の再起動 → 保存値を復元
+            initialSteps = prefs.getInt(KEY_INITIAL_STEPS, -1)
+            _stepCount.value = prefs.getInt(KEY_STEP_COUNT, 0)
+            _remainingSeconds.value = prefs.getInt(KEY_REMAINING_SECONDS, 0)
+        }
+
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
         createNotificationChannel()
@@ -78,7 +118,7 @@ class StepCounterService : Service(), SensorEventListener {
             while (true) {
                 delay(1000L)
                 val before = _remainingSeconds.value
-                if (before > 0) {
+                if (before > 0 && _isRestrictedAppActive.value) {
                     val after = before - 1
                     _remainingSeconds.value = after
                     Log.d("StepLockService", "⏱ countdown: ${after}秒")
@@ -117,6 +157,13 @@ class StepCounterService : Service(), SensorEventListener {
             _remainingSeconds.value += (newMinutes - oldMinutes) * 60
             Log.d("StepLockService", "🦶 実機: +${(newMinutes - oldMinutes) * 60}秒 (残り${_remainingSeconds.value}秒)")
         }
+
+        // Bug3：データを永続化（サービス再起動時に復元できるようにする）
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putInt(KEY_INITIAL_STEPS, initialSteps)
+            .putInt(KEY_STEP_COUNT, newCount)
+            .putInt(KEY_REMAINING_SECONDS, _remainingSeconds.value)
+            .apply()
 
         updateNotification(newCount)
     }
