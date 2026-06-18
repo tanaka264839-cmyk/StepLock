@@ -142,8 +142,17 @@ class StepCounterService : Service(), SensorEventListener {
         event ?: return
         val totalSteps = event.values[0].toInt()
 
-        if (initialSteps == -1) {
+        // センサーリセット検出：initialSteps未設定 or 端末再起動でtotalStepsが小さくなった場合
+        // （TYPE_STEP_COUNTERは端末再起動でリセットされるため、同日中に再起動するとinitialSteps > totalStepsになる）
+        if (initialSteps == -1 || totalSteps < initialSteps) {
             initialSteps = totalSteps
+            _stepCount.value = 0
+            getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putInt(KEY_INITIAL_STEPS, initialSteps)
+                .putInt(KEY_STEP_COUNT, 0)
+                .apply()
+            updateNotification(0)
+            return
         }
 
         val oldCount = _stepCount.value
