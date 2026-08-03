@@ -15,8 +15,8 @@ android {
         applicationId = "com.shosoku.steplock"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.2"
+        versionCode = 12
+        versionName = "1.12"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

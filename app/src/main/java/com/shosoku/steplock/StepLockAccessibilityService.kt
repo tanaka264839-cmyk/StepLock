@@ -223,7 +223,7 @@ class StepLockAccessibilityService : AccessibilityService() {
                 StepCounterService.stepCount.collect { steps ->
                     val stepsInBatch = steps % 100
                     val stepsNeeded = if (stepsInBatch == 0) 100 else 100 - stepsInBatch
-                    stepsNeededTextView?.text = "あと $stepsNeeded 歩 歩くと 1分 使えます"
+                    stepsNeededTextView?.text = "あと ${stepsNeeded}歩で１分使えます。歩いた分だけ利用時間が増えます"
                 }
             }
         } catch (e: Exception) {
@@ -280,7 +280,7 @@ class StepLockAccessibilityService : AccessibilityService() {
         val initStepsInBatch = StepCounterService.stepCount.value % 100
         val initStepsNeeded = if (initStepsInBatch == 0) 100 else 100 - initStepsInBatch
         val subText = TextView(context).apply {
-            text = "あと $initStepsNeeded 歩 歩くと 1分 使えます"
+            text = "あと ${initStepsNeeded}歩で１分使えます。歩いた分だけ利用時間が増えます"
             textSize = 16f
             setTextColor(android.graphics.Color.LTGRAY)
             gravity = Gravity.CENTER
@@ -290,7 +290,7 @@ class StepLockAccessibilityService : AccessibilityService() {
         stepsNeededTextView = subText
 
         val homeButton = Button(context).apply {
-            text = "ホームに戻る"
+            text = "いったんホームに戻る"
             textSize = 16f
             setOnClickListener {
                 dismissBlockScreen()
